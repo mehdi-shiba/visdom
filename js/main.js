@@ -46,6 +46,8 @@ class App extends React.Component {
     saveText: ACTIVE_ENV,
     // Bad form... make a copy of the global var we generated in python.
     envList: ENV_LIST.slice(),
+    filter: '',
+    filterField: '',
     layout: [],
     cols: 1280,
     width: 100,
@@ -54,17 +56,22 @@ class App extends React.Component {
   _bin = null;
   _socket = null;
   _envFieldRef = null;
+  _filterFieldRef = null;
   _timeoutID = null;
   _pendingPanes = [];
 
-  pix2grid = (w, h) => {  // translate pixels -> RGL grid coordinates
-    let colWidth = (this.state.width - (MARGIN * (this.state.cols - 1))
+  colWidth = () => {
+    return (this.state.width - (MARGIN * (this.state.cols - 1))
       - (MARGIN * 2)) / this.state.cols;
+  }
 
-    w = (w + MARGIN) / (colWidth + MARGIN);
-    h = (h + MARGIN) / (ROW_HEIGHT + MARGIN);
+  p2w = (w) => {  // translate pixels -> RGL grid coordinates
+    let colWidth = this.colWidth();
+    return (w + MARGIN) / (colWidth + MARGIN);
+  }
 
-    return {w: w, h: h};
+  p2h = (h) => {
+    return (h + MARGIN) / (ROW_HEIGHT + MARGIN);
   }
 
   keyLS = (key) => {      // append env to pane id for localStorage key
@@ -108,17 +115,9 @@ class App extends React.Component {
       } else {
         let w = PANE_SIZE[newPane.type][0], h = PANE_SIZE[newPane.type][1];
 
-        if (newPane.content && newPane.content.size) {
-          // we set the size once we know rendered size
-          let newSize = this.pix2grid(
-            newPane.content.size[1],
-            newPane.content.size[0] + 14  // bar size is 14px
-          );
-
-          w = newSize.w;  // w = Math.ceil(newSize.w);
-          h = Math.ceil(newSize.h);
-          if (newPane.content.caption) h += 1;
-        }
+        if (newPane.width) w = this.p2w(newPane.width);
+        if (newPane.height) h = Math.ceil(this.p2h(newPane.height + 14));
+        if (newPane.content.caption) h += 1;
 
         this._bin.content.push({width: w, height: h});
 
@@ -319,6 +318,16 @@ class App extends React.Component {
 
     let sorted = sortLayout(this.state.layout);
     let newPanes = Object.assign({}, this.state.panes);
+    let filter = this.state.filter;
+
+    sorted = sorted.sort(function(a, b) {
+      let diff = (newPanes[a.i].title.match(filter) != null) -
+              (newPanes[b.i].title.match(filter) != null);
+      if (diff != 0) {
+        return -diff;
+      }
+      else return sorted.indexOf(a) - sorted.indexOf(b);  // stable sort
+    });
 
     let newLayout = sorted.map((paneLayout, idx) => {
       let pos = this._bin.position(idx, this.state.cols);
@@ -368,7 +377,8 @@ class App extends React.Component {
       let panelayout = getLayoutItem(this.state.layout, id);
 
       return (
-        <div key={pane.id}>
+        <div key={pane.id}
+          style={pane.title.match(this.state.filter) ? {} : {display:'none'}}>
           <Comp
             {...pane}
             key={pane.id}
@@ -423,6 +433,28 @@ class App extends React.Component {
               onClick={this.saveEnv}>
               {this.state.envList.indexOf(
                 this.state.saveText) >= 0 ? 'save' : 'fork'}
+            </button>
+            <input
+              className="form-control"
+              type="text"
+              onChange={(ev) => {this.setState(
+                {filterField: ev.target.value}
+              )}}
+              value={this.state.filterField}
+              ref={(ref) => this._filterFieldRef = ref}
+            />
+            <button
+              className="btn btn-default"
+              disabled={!this.state.connected}
+              onClick={(ev) => {this.setState(
+                {filter: this.state.filterField}, () => {
+                  Object.keys(this.state.panes).map((paneID) => {
+                    this.focusPane(paneID);
+                  });
+                  this.relayout();
+                }
+              )}}>
+              filter
             </button>
             <button
               style={{float: 'right'}}
